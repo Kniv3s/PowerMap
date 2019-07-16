@@ -26,13 +26,19 @@ function PowerMap {
 		.PARAMETER ScanPort
 		Perform a PortScan
 
+		.PARAMETER ScanType
+		The type of scan to do. Currently on tcp and udp are supported. TCP connect scan is default.
+		
+		.PARAMETER UDPTimeOut
+		The amount of time to wait to decide if a UDP port is open. If a non-UDP scan is used, value is ignored. Default is 5000ms.
+		
 		.PARAMETER Ports
 		Ports That should be scanned, default values are: 21,22,23,53,69,71,80,98,110,139,111,
 		389,443,445,1080,1433,2001,2049,3001,3128,5222,6667,6868,7777,7878,8080,1521,3306,3389,
 		5801,5900,5555,5901
 
 		.PARAMETER TimeOut
-		Time (in MilliSeconds) before TimeOut, Default set to 100
+		Time (in MilliSeconds) before TimeOut, Default set to 100.
 
 		.PARAMETER Subnet
 		A subnet or subnetmask to scan over. When used with (or without) EndAddress; will override
@@ -48,6 +54,7 @@ function PowerMap {
 		[switch]$ResolveHost,
 		[switch]$ScanPort,
 		[string]$ScanType = "tcp",
+		[int]$UDPTimeOut = 5000
 		[int[]]$Ports = @(21,22,23,53,69,71,80,98,110,139,111,389,443,445,1080,1433,2001,2049,3001,3128,5222,6667,6868,7777,7878,8080,1521,3306,3389,5801,5900,5555,5901),
 		[int]$TimeOut = 100
 	)
@@ -77,6 +84,11 @@ function PowerMap {
 					}
 				}
 			}
+		}
+		$supported = "tcp", "udp"
+		if (!supported.contains($ScanType.ToLower())) {
+			Write-Error "Unsupported port scan type. Only Host Discovery Performed"
+			$ScanPort = 0
 		}
 	}
 	Process {
@@ -119,7 +131,7 @@ function PowerMap {
 							}
 							"udp" {
 								$client = new-Object system.Net.Sockets.Udpclient
-								$client.client.ReceiveTimeout = $TimeOut
+								$client.client.ReceiveTimeout = $UDPTimeOut
 								$client.Connect($pingStatus.Address,$port)
 								$a = new-Object System.Text.ASCIIEncoding
 								$byte = $a.GetBytes("$(Get-Date)")
@@ -160,3 +172,4 @@ function PowerMap {
 	End {
 	}
 }
+
