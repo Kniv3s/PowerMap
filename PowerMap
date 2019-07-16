@@ -137,7 +137,7 @@ function PowerMap {
 									} ElseIf ($Error[0].ToString() -match "forcibly closed by the remote host" ) { 
 										$closedPorts += $port
 									}
-								} Finaly {
+								} Finally {
 									$client.close()
 								}
 							}
