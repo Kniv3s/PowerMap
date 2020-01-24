@@ -1,0 +1,19 @@
+function Get-Tasks
+{
+	$tasks = gci C:\Windows\System32\Tasks
+	foreach ($item in $tasks)
+	{
+		$abs = "C:\Windows\System32\Tasks\" + $item.Name
+		$task = [xml] (Get-Content $abs)
+		New-Object PSObject -Property @{
+			Task = $item.Name
+			Command = $task.Task.Actions.Exec.Command
+		} | Select-Object Task, Command
+	}
+}
+function Get-FreeSpace
+{
+	$Fs=@{Label='Free Space'; expression={$_.freespace}; formatstring='n0'}
+	$Sz=@{Label='Size'; expression={$_.Size}; formatstring='n0'}
+	Get-WMIObject win32_logicaldisk | Format-Table Name, $Fs, $Sz  -a
+}
