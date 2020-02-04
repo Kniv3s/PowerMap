@@ -101,7 +101,7 @@ function PowerMap {
 								[void]$client.Send($byte,$byte.length)
 								$remoteendpoint = New-Object system.net.ipendpoint([system.net.ipaddress]::Any,0)
 								Try {
-									$receivebytes = $udpobject.Receive([ref]$remoteendpoint) 
+									$receivebytes = $client.Receive([ref]$remoteendpoint) 
 									[string]$returndata = $a.GetString($receivebytes)
 									If ($returndata) {
 										$openPorts += $port
