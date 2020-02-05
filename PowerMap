@@ -122,8 +122,12 @@ function PowerMap {
 	}
 	Process {
 		for ($n = 0; $n -lt $hosts.Count; $n++) {
+            $OpenTCPPorts = @()
+            $ClosedTCPPorts = @()
+            $OpenUDPPorts = @()
+            $FilteredUDPPorts = @()
+            $ClosedUDPPorts = @()
             $h = $hosts[$n]
-			$d = $h.Split(".")[3]
 			if ($EndAddress) {
 				write-progress -activity PingSweep -status "$h" -percentcomplete (($n/$hosts.Count) * 100)
 			}
@@ -136,30 +140,31 @@ function PowerMap {
 					$getHostEntry = [Net.DNS]::BeginGetHostEntry($pingStatus.Address, $null, $null)
 				}
                 if ($TCPScan -or $UDPScan) {
-				    for ($i = 1; $i -le $ports.Count;$i++) {
-					    $port = $ports[($i-1)]
-					    write-progress -activity PortScan -status "$h" -percentcomplete (($i/($Ports.Count)) * 100) -Id 2
+				    for ($i = 0; $i -lt $ports.Count; $i++) {
+					    $port = $ports[$i]
+					    write-progress -activity PortScan -status "$h : $port" -percentcomplete (($i/($Ports.Count)) * 100) -Id 2
 					    if ($TCPScan) {
-                            $OpenTCPPorts = @()
-                            $ClosedTCPPorts = @()
 						    $client = New-Object System.Net.Sockets.TcpClient
-						    $beginConnect = $client.BeginConnect($pingStatus.Address,$port,$null,$null)
-						    if ($client.Connected) {
-							    $OpenTCPPorts += $port
-						    } else {
-							    # Wait
-							    Start-Sleep -Milli $TimeOut
-							    if($client.Connected) {
-								    $OpenTCPPorts += $port
-							    } else {
-								    $ClosedTCPPorts += $port
-							    }
-						    }
-						    $client.Close()
+                            Try {
+						        $client.Connect($pingStatus.Address,$port)
+						        if ($client.Connected) {
+							        $OpenTCPPorts += $port
+						        } else {
+							        # Wait
+							        Start-Sleep -Milli $TimeOut
+							        if($client.Connected) {
+								        $OpenTCPPorts += $port
+							        } else {
+								        $ClosedTCPPorts += $port
+							        }
+						        }
+                            } Catch {
+                                $ClosedTCPPorts += $port
+                            } Finally {
+                                $client.Close()
+                            }
 					    }
 					    if ($UDPScan) {
-                            $OpenUDPPorts = @()
-                            $ClosedUDPPorts = @()
 						    $client = new-Object system.Net.Sockets.Udpclient
 						    $client.client.ReceiveTimeout = $UDPTimeOut
 						    $client.Connect($pingStatus.Address,$port)
@@ -175,7 +180,7 @@ function PowerMap {
 							    }
 						    } Catch {
 							    If ($Error[0].ToString() -match "\bRespond after a period of time\b") {
-								    $OpenUDPPorts += $port
+								    $FilteredUDPPorts += $port
 							    } ElseIf ($Error[0].ToString() -match "forcibly closed by the remote host" ) { 
 								    $ClosedUDPPorts += $port
 							    } Else {
@@ -187,22 +192,22 @@ function PowerMap {
 					    } 
 				    }
                 }
-			}
-			if($ResolveHost) {
-				$hostName = ([Net.DNS]::EndGetHostEntry([IAsyncResult]$getHostEntry)).HostName
-			}
-			# Return Object
-			$ret += New-Object PSObject -Property @{
-				IPAddress = "$h";
-				HostName = $hostName;
-				OpenTCPPorts = $OpenTCPPorts;
-				ClosedTCPPorts = $ClosedTCPPorts;
-                OpenUDPPorts = $OpenUDPPorts;
-				ClosedUDPPorts = $ClosedUDPPorts;
+			    if($ResolveHost) {
+				    $hostName = ([Net.DNS]::EndGetHostEntry([IAsyncResult]$getHostEntry)).HostName
+			    }
+			    $ret += New-Object PSObject -Property @{
+			        IPAddress = "$h";
+			        HostName = $hostName;
+			        OpenTCPPorts = $OpenTCPPorts;
+			        ClosedTCPPorts = $ClosedTCPPorts;
+                    OpenUDPPorts = $OpenUDPPorts;
+                    FilteredUDPPorts = $FilteredUDPPorts;
+			        ClosedUDPPorts = $ClosedUDPPorts;
+			    }
 			}
 		}
+        return $ret
 	}
 	End {
-        return $ret
 	}
 }
