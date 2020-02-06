@@ -7,25 +7,27 @@ function toDottedDecimal ($binary){
 	return $dottedDecimal.substring(1)
 }
 function PowerMap {
-    <#
+	<#
 	.SYNOPSIS
-		Scan IP-Addresses, Ports, and HostNames
+		Scan IP-Addresses, Ports, and HostNames through a TCP Connect scan and/or UDP scan.
 
-    .DESCRIPTION
+	.DESCRIPTION
 		Scan for IP-Addresses, HostNames, and open Ports in your Network.
 
+	.PARAMETER AddressList
+		A list of addresses to scan.
 	.PARAMETER StartAddress
-		StartAddress Range
-    .PARAMETER EndAddress
-        A CIDR network range
-    .PARAMETER Network
-		EndAddress Range
+		StartAddress Range or single host to scan.
+	.PARAMETER EndAddress
+		A The last address to scan.
+	.PARAMETER Network
+		The CIDR Notated/ranged network to use.
 	.PARAMETER ResolveHost
-		Resolve HostName
+		Resolve HostName.
 	.PARAMETER TCPScan
-		Perform a TCP Syn scan of all listed ports
-    .PARAMETER UDPScan
-        Perform a UDP scan of all listed ports
+		Perform a TCP Syn scan of all listed ports.
+	.PARAMETER UDPScan
+		Perform a UDP scan of all listed ports.
 	.PARAMETER UDPTimeOut
 		The amount of time to wait to decide if a UDP port is open. If a non-UDP scan is used, value is ignored. Default is 5000ms.
 	.PARAMETER Ports
@@ -35,178 +37,216 @@ function PowerMap {
 	.PARAMETER TimeOut
 		Time (in MilliSeconds) before TimeOut, Default set to 100.
 	.PARAMETER Subnet
-		A subnet or subnetmask to scan over. When used with (or without) EndAddress; will override
-		StartAddress with first address in subnet and override EndAddress with last address in subnet
+		A subnet or subnetmask to scan over in CIDR notation. 
 	#>
 	Param(
-        [parameter(Position = 0, ParameterSetName="AddressList")]
+		#Validation patterns given is not strictly checked for IP address form. just looking for didgits and 
+		#	should be validated before feeding to script.
+
+		[parameter(Position = 0, ParameterSetName="AddressList")]
 		[ValidatePattern("\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b")]
 		[string[]]
-        $AddressList,
-        [parameter(Position = 0, ParameterSetName="Network")]
-        [ValidatePattern("\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(([\\,/]\d{1,2})|-\.{0,1}\d{1,3}(\.\d{1,3}){0,3})\b")]
-        [string]
-        $Network,
+		$AddressList,
+		[parameter(Position = 0, ParameterSetName="Network")]
+		[ValidatePattern("\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(([\\,/]\d{1,2})|-\.{0,1}\d{1,3}(\.\d{1,3}){0,3})\b")]
+		[string]
+		$Network,
 		[parameter(Position = 0, ParameterSetName="AddressRange")]
 		[parameter(Position = 0, ParameterSetName="Subnet")]
 		[ValidatePattern("\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b")]
 		[string]
-        $StartAddress,
-        [parameter(Position = 1, ParameterSetName="AddressRange")]
+		$StartAddress,
+		[parameter(Position = 1, ParameterSetName="AddressRange")]
 		[string]
-        $EndAddress,
-        [parameter(Position = 1, ParameterSetName="Subnet")]
+		$EndAddress,
+		[parameter(Position = 1, ParameterSetName="Subnet")]
 		[string]
-        $Subnet,
+		$Subnet,
 		[switch]
-        $ResolveHost,
+		$ResolveHost,
 		[switch]
-        $TCPScan,
-        [switch]
-        $UDPScan,
+		$TCPScan,
+		[switch]
+		$UDPScan,
 		[int]
-        $UDPTimeOut = 5000,
+		$UDPTimeOut = 5000,
 		[int[]]
-        $Ports = @(21,22,23,53,69,71,80,88,110,139,111,389,443,445,1080,1433,1434,1521,2001,2049,3001,3128,3306,3389,5222,5555,5801,5900,5901,6667,6868,7777,7878,8080),
+		$Ports = @(21,22,23,53,69,71,80,88,110,139,111,389,443,445,1080,1433,1434,1521,2001,2049,3001,3128,3306,3389,5222,5555,5801,5900,5901,6667,6868,7777,7878,8080),
 		[int]
-        $TimeOut = 100
+		$TimeOut = 100
 	)
 	Begin {
+		#Set up variables to hold all our data that will be used
 		$ping = New-Object System.Net.Networkinformation.Ping
-		$hosts = @()
-        $ret = @()
-        if ($PSCmdlet.ParameterSetName -eq "AddressList") {
-            $hosts = $AddressList
-        } else {
-            if ($PSCmdlet.ParameterSetName -eq "Network") {
-                if ($Network.IndexOf("-") -ne -1){
-                    $StartAddress = $Network.Split('-')[0]
-                    $EndAddr = $Network.Split('-')[1]
-                    if ($EndAddr.StartsWith(".")){
-                        $EndAddr = $EndAddr.Substring(1)
-                    }
-                    $t = 3 - $EndAddr.Split('.').Count
-                    $EndAddr = $StartAddress.Split('.')[0..$t] + $EndAddr.Split('.')
-                    $EndAddress = $EndAddr[0]
-                    for ($i = 1; $i -lt 4; $i++) {
-                        $EndAddress += "." + $EndAddr[$i]
-                    }
-                } else {
-                    $ipBinary = toBinary([String]($Network.Split('\').Split('/')[0]))
-                    $Subnet = [int]($Network.Split('\').Split('/')[1])
-                    $StartAddress = toDottedDecimal($ipBinary.substring(0,$Subnet).padright(31,"0") + "1")
-			        $EndAddress = toDottedDecimal($ipBinary.substring(0,$Subnet).padright(31,"1") + "0")
-                }
-            } elseif ($PSCmdlet.ParameterSetName -eq "AddressRange") {
-			    if ($Subnet) {
-				    $ipBinary = toBinary($StartAddress)
-				    if ($Subnet.StartsWith("/") -or $Subnet.StartsWith("\")) {
-					    $Subnet = $Subnet.Substring(1)
-				    }
-                    $Subnet = [int]$Subnet
-				    $StartAddress = toDottedDecimal($ipBinary.substring(0,$Subnet).padright(31,"0") + "1")
-				    $EndAddress = toDottedDecimal($ipBinary.substring(0,$Subnet).padright(31,"1") + "0")
-			    }
-            }
-            if (!$EndAddress) {
-			    $hosts += $StartAddress
-		    } else {
-                $Start = [convert]::ToUInt32( $(toBinary($StartAddress)), 2 )
-                $End = [convert]::ToUInt32( $(toBinary($EndAddress)), 2)
-		        for ($i = $start; $i -le $End; $i++){
-                    $t = [convert]::toString($i,2).padleft(32,"0")
-                    $hosts += toDottedDecimal( $t )
-		        }
-            }
-        }
-	}
-	Process {
-		for ($n = 0; $n -lt $hosts.Count; $n++) {
-            $OpenTCPPorts = @()
-            $ClosedTCPPorts = @()
-            $OpenUDPPorts = @()
-            $FilteredUDPPorts = @()
-            $ClosedUDPPorts = @()
-            $h = $hosts[$n]
-			if ($EndAddress) {
-				write-progress -activity PingSweep -status "$h" -percentcomplete (($n/$hosts.Count) * 100)
-			}
-			$pingStatus = $ping.Send("$h",$TimeOut)
-			if ($pingStatus.Status -eq "Success") {
-				if($ResolveHost) {
-					if ($EndAddress){
-						write-progress -activity ResolveHost -status "$h" -percentcomplete (($n/$hosts.Count)  * 100) -Id 1
+		$hosts = @()	#The list of hosts to scan
+		$ret = @() 	#The datastructure that will hold the results
+		#The first parameter group is for a list given. Minimal effort to turn that into a hosts list
+		if ($PSCmdlet.ParameterSetName -eq "AddressList") {
+			$hosts = $AddressList
+		} elseif ($PSCmdlet.ParameterSetName -eq "AddressRange" -and !$EndAddress -and !$Subnet) {
+			#If the address range set is active with no subnet or endaddress we have a single address
+			$hosts += $StartAddress
+		} else {
+			#If it is any other group we find the range of ips, then convert it to a hosts list
+			#For the Network set there are two possible ways data is given: A host range or a CIDR notation
+			if ($PSCmdlet.ParameterSetName -eq "Network") {
+				#For host range we need to pull left and right limits
+				if ($Network.IndexOf("-") -ne -1){
+					#Left limit will have a full IP and be easily derived
+					$StartAddress = $Network.Split('-')[0]
+					#Right limit might be a partial address so further logic is needed to get a right limit
+					$EndAddr = $Network.Split('-')[1]
+					#Remove the . if it was given
+					if ($EndAddr.StartsWith(".")){
+						$EndAddr = $EndAddr.Substring(1)
 					}
-					$getHostEntry = [Net.DNS]::BeginGetHostEntry($pingStatus.Address, $null, $null)
+					#take however many octets were given for the right limit and append the appropriate
+					#	number of left octets
+					$t = 3 - $EndAddr.Split('.').Count
+					$EndAddr = $StartAddress.Split('.')[0..$t] + $EndAddr.Split('.')
+					$EndAddress = $EndAddr[0]
+					for ($i = 1; $i -lt 4; $i++) {
+						$EndAddress += "." + $EndAddr[$i]
+					}
+				} else {
+					#For CIDR notation we split the network IP and CIDR notation
+					$ipBinary = toBinary([String]($Network.Split('\').Split('/')[0]))
+					$Subnet = [int]($Network.Split('\').Split('/')[1])
+					#Then we convert the IP to binary and truncate all network bits, then convert back to 
+					#	dotted decimal notation with the least significant bit flipped to account for 
+					#	the reserved address space
+					$StartAddress = toDottedDecimal($ipBinary.substring(0,$Subnet).padright(31,"0") + "1")
+					#The same proccess but giving the network bits a 1 and reserved broadcast IP
+					$EndAddress = toDottedDecimal($ipBinary.substring(0,$Subnet).padright(31,"1") + "0")
 				}
-                if ($TCPScan -or $UDPScan) {
-				    for ($i = 0; $i -lt $ports.Count; $i++) {
-					    $port = $ports[$i]
-					    write-progress -activity PortScan -status "$h : $port" -percentcomplete (($i/($Ports.Count)) * 100) -Id 2
-					    if ($TCPScan) {
-						    $client = New-Object System.Net.Sockets.TcpClient
-                            Try {
-						        $client.Connect($pingStatus.Address,$port)
-						        if ($client.Connected) {
-							        $OpenTCPPorts += $port
-						        } else {
-							        # Wait
-							        Start-Sleep -Milli $TimeOut
-							        if($client.Connected) {
-								        $OpenTCPPorts += $port
-							        } else {
-								        $ClosedTCPPorts += $port
-							        }
-						        }
-                            } Catch {
-                                $ClosedTCPPorts += $port
-                            } Finally {
-                                $client.Close()
-                            }
-					    }
-					    if ($UDPScan) {
-						    $client = new-Object system.Net.Sockets.Udpclient
-						    $client.client.ReceiveTimeout = $UDPTimeOut
-						    $client.Connect($pingStatus.Address,$port)
-						    $a = new-Object System.Text.ASCIIEncoding
-						    $byte = $a.GetBytes("$(Get-Date)")
-						    [void]$client.Send($byte,$byte.length)
-						    $remoteendpoint = New-Object system.net.ipendpoint([system.net.ipaddress]::Any,0)
-						    Try {
-							    $receivebytes = $client.Receive([ref]$remoteendpoint) 
-							    [string]$returndata = $a.GetString($receivebytes)
-							    If ($returndata) {
-								    $OpenUDPPorts += $port
-							    }
-						    } Catch {
-							    If ($Error[0].ToString() -match "\bRespond after a period of time\b") {
-								    $FilteredUDPPorts += $port
-							    } ElseIf ($Error[0].ToString() -match "forcibly closed by the remote host" ) { 
-								    $ClosedUDPPorts += $port
-							    } Else {
-                                    Write-Host $Error[0].ToString()
-                                }
-						    } Finally {
-							    $client.close()
-						    }
-					    } 
-				    }
-                }
-			    if($ResolveHost) {
-				    $hostName = ([Net.DNS]::EndGetHostEntry([IAsyncResult]$getHostEntry)).HostName
-			    }
-			    $ret += New-Object PSObject -Property @{
-			        IPAddress = "$h";
-			        HostName = $hostName;
-			        OpenTCPPorts = $OpenTCPPorts;
-			        ClosedTCPPorts = $ClosedTCPPorts;
-                    OpenUDPPorts = $OpenUDPPorts;
-                    FilteredUDPPorts = $FilteredUDPPorts;
-			        ClosedUDPPorts = $ClosedUDPPorts;
-			    }
+			} elseif ($PSCmdlet.ParameterSetName -eq "AddressRange") {
+				#if the subnet is given we will do the same proccess as in network, and if not
+				#	then a start and end address were given and we have all required information
+				if ($Subnet) {
+					$ipBinary = toBinary($StartAddress)
+					if ($Subnet.StartsWith("/") -or $Subnet.StartsWith("\")) {
+						$Subnet = $Subnet.Substring(1)
+					}
+					$Subnet = [int]$Subnet
+					$StartAddress = toDottedDecimal($ipBinary.substring(0,$Subnet).padright(31,"0") + "1")
+					$EndAddress = toDottedDecimal($ipBinary.substring(0,$Subnet).padright(31,"1") + "0")
+				} 
+			}
+			#This converts the left and right IP address to binary, then decimal
+			#	from there we loop through and convert back to binary, pad left
+			#	and feed back to dotted decimal notation, then add to the hosts list
+			$Start = [convert]::ToUInt32( $(toBinary($StartAddress)), 2 )
+			$End = [convert]::ToUInt32( $(toBinary($EndAddress)), 2)
+			for ($i = $start; $i -le $End; $i++){
+				$t = [convert]::toString($i,2).padleft(32,"0")
+				$hosts += toDottedDecimal( $t )
 			}
 		}
-        return $ret
+	}
+	Process {
+		#Now we loop through each hosts
+		for ($n = 0; $n -lt $hosts.Count; $n++) {
+			#Set up all the lists we will be useing to return information about the host
+			$OpenTCPPorts = @()
+			$ClosedTCPPorts = @()
+			$OpenUDPPorts = @()
+			$FilteredUDPPorts = @()
+			$ClosedUDPPorts = @()
+			#Grab the host we focus on for this loop
+			$h = $hosts[$n]
+			#Give a UI element to inform user that it is still running
+			write-progress -activity PingSweep -status "$h" -percentcomplete (($n/$hosts.Count) * 100)
+			#Ping host to make sure it is alive
+			$pingStatus = $ping.Send("$h",$TimeOut)
+			if ($pingStatus.Status -eq "Success") {
+				#If the host is active (responding to pings)
+				if($ResolveHost) {
+					#If host resolution was requested, give a UI clue and resolve host name
+					write-progress -activity ResolveHost -status "$h" -percentcomplete (($n/$hosts.Count)  * 100) -Id 1
+					$hostName = [Net.DNS]::BeginGetHostEntry($pingStatus.Address, $null, $null)
+				}
+				#If a scan is requested
+				if ($TCPScan -or $UDPScan) {
+					#Loop through all ports
+					for ($i = 0; $i -lt $ports.Count; $i++) {
+						#Get current port and give UI an indicator of what is happening
+						$port = $ports[$i]
+						write-progress -activity PortScan -status "$h : $port" -percentcomplete (($i/($Ports.Count)) * 100) -Id 2
+						if ($TCPScan) {
+							#If tcp scan is requested make a new client
+							$client = New-Object System.Net.Sockets.TcpClient
+							Try {
+								#If you can connect to the port it is open
+								$client.Connect($pingStatus.Address,$port)
+								if ($client.Connected) {
+									$OpenTCPPorts += $port
+								} else {
+									#If it did not imediatly connect wait the timeout period
+									Start-Sleep -Milli $TimeOut
+									#If it does connect the port is open, otherwise it isn't
+									if($client.Connected) {
+										$OpenTCPPorts += $port
+									} else {
+										$ClosedTCPPorts += $port
+									}
+								}
+							} Catch {
+								#If an error occurs the port is closed. We do not do extensive confimation of error states
+								$ClosedTCPPorts += $port
+							} Finally {
+								#Either way close the socket
+								$client.Close()
+							}
+						}
+						if ($UDPScan) {
+							#Set up all the nessissary settings for a UDP scan
+							$client = new-Object system.Net.Sockets.Udpclient
+							$client.client.ReceiveTimeout = $UDPTimeOut
+							$client.Connect($pingStatus.Address,$port)
+							$a = new-Object System.Text.ASCIIEncoding
+							$byte = $a.GetBytes("$(Get-Date)")
+							#Send a packet to the port
+							[void]$client.Send($byte,$byte.length)
+							$remoteendpoint = New-Object system.net.ipendpoint([system.net.ipaddress]::Any,0)
+							Try {
+								#If the the client responds the port is open
+								$receivebytes = $client.Receive([ref]$remoteendpoint) 
+								[string]$returndata = $a.GetString($receivebytes)
+								If ($returndata) {
+									$OpenUDPPorts += $port
+								}
+							} Catch {
+								If ($Error[0].ToString() -match "\bRespond after a period of time\b") {
+									#If it times out the port is likely filtered
+									$FilteredUDPPorts += $port
+								} ElseIf ($Error[0].ToString() -match "forcibly closed by the remote host" ) {
+									#If we get a notification that the port is closed, the port is closed
+									$ClosedUDPPorts += $port
+								} Else {
+									#Pass any other error to consol
+									Write-Host $Error[0].ToString()
+								}
+							} Finally {
+								#Close the client to free up resources
+								$client.close()
+							}
+						} 
+					}
+				}
+				#Create a PSObject to pass back data to the consol and store in the designated array
+				$ret += New-Object PSObject -Property @{
+					IPAddress = "$h";
+					HostName = $hostName;
+					OpenTCPPorts = $OpenTCPPorts;
+					ClosedTCPPorts = $ClosedTCPPorts;
+					OpenUDPPorts = $OpenUDPPorts;
+					FilteredUDPPorts = $FilteredUDPPorts;
+					ClosedUDPPorts = $ClosedUDPPorts;
+				}
+			}
+		}
+		#Return the filled array
+		return $ret
 	}
 	End {
 	}
